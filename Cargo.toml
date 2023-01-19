@@ -2,8 +2,15 @@
 name = "itsdns"
 version = "0.1.0"
 edition = "2021"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+license = "MIT OR Apache-2.0"
+description = "Light weight DNS client based on embedded-nal-async"
+repository = "https://github.com/lulf/itsdns"
+categories = [
+    "embedded",
+    "no-std",
+    "dns",
+    "net",
+]
 
 [dependencies]
 embedded-nal-async = { version = "0.3.0", path = "../../embedded-nal/embedded-nal-async" }

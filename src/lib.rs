@@ -1,5 +1,5 @@
 //! DNS client built on embedded-nal-async UDP traits.
-#![no_std]
+//#![no_std]
 #![feature(impl_trait_projections)]
 #![feature(async_fn_in_trait)]
 

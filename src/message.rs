@@ -78,7 +78,7 @@ pub(crate) struct Answer<'a> {
 }
 
 impl<'a> Questions<'a> {
-    fn len(&self) -> usize {
+    fn count(&self) -> usize {
         match self {
             Questions::Slice(q) => q.len(),
             Questions::Raw(s) => {
@@ -97,12 +97,12 @@ impl<'a> Questions<'a> {
                     let qtype = (question.qtype as u16).to_be_bytes();
                     buf[pos] = qtype[0];
                     buf[pos + 1] = qtype[1];
+                    pos += 2;
 
                     let qclass = (question.qclass as u16).to_be_bytes();
-                    buf[pos + 2] = qclass[0];
-                    buf[pos + 3] = qclass[1];
-
-                    pos += 4;
+                    buf[pos] = qclass[0];
+                    buf[pos + 1] = qclass[1];
+                    pos += 2;
                 }
                 Ok(pos)
             }
@@ -119,7 +119,7 @@ impl<'a> Questions<'a> {
 }
 
 impl<'a> Answers<'a> {
-    fn len(&self) -> usize {
+    fn count(&self) -> usize {
         match self {
             Answers::Slice(q) => q.len(),
             Answers::Raw(s) => {
@@ -225,12 +225,14 @@ impl<'a> DnsMessage<'a> {
 
         buf[3] = 0;
 
-        buf[4] = self.questions.len() as u8; // QDCOUNT
-        buf[5] = self.answers.len() as u8; // ANCOUNT
-        buf[6] = 0; // NSCOUNT
-        buf[7] = 0; // ARCOUNT
+        buf[4..6].copy_from_slice(&(self.questions.count() as u16).to_be_bytes()); // QDCOUNT
+        buf[6..8].copy_from_slice(&(self.answers.count() as u16).to_be_bytes()); // ANCOUNT
+        buf[8] = 0; // NSCOUNT
+        buf[9] = 0; // NSCOUNT
+        buf[10] = 0; // ARCOUNT
+        buf[11] = 0; // ARCOUNT
 
-        let mut pos = 8;
+        let mut pos = 12;
         pos += self.questions.encode(&mut buf[pos..])?;
 
         pos += self.answers.encode(&mut buf[pos..])?;
@@ -299,8 +301,31 @@ impl<'a> DnsMessage<'a> {
     }
 }
 
-#[cfg(tests)]
+#[cfg(test)]
 mod tests {
+    use super::*;
+    extern crate std;
+
     #[test]
-    fn test_codec() {}
+    fn test_query() {
+        let mut buf = [0; 128];
+
+        let len = DnsMessage {
+            id: 2,
+            opcode: Opcode::Query,
+            questions: Questions::Slice(&[Question {
+                qname: Domain::String("google.com"),
+                qtype: QType::A,
+                qclass: QClass::IN,
+            }]),
+            answers: Answers::Slice(&[]),
+        }
+        .encode(&mut buf[..])
+        .unwrap();
+        assert_eq!(len, 28);
+
+        use std::net::UdpSocket;
+        let socket = UdpSocket::bind("0.0.0.0:9999").expect("error binding");
+        socket.send_to(&buf[..len], "8.8.8.8:53").unwrap();
+    }
 }

@@ -55,17 +55,18 @@ impl<S: UdpStack> Dns for ItsDns<S> {
         let mut packet = [0; 512];
 
         let id = self.id.fetch_add(1, Ordering::Relaxed);
-        let message = DnsMessage {
+        let len = DnsMessage {
             id,
             opcode: Opcode::Query,
-            questions: &[Question {
+            questions: Questions::Slice(&[Question {
                 qname: Domain::String(host),
                 qtype: QType::A,
                 qclass: QClass::IN,
-            }],
-            answers: &[],
-        };
-        let len = message.encode(&mut packet[..]).map_err(Error::Dns)?;
+            }]),
+            answers: Answers::Slice(&[]),
+        }
+        .encode(&mut packet[..])
+        .map_err(Error::Dns)?;
 
         match self.stack.connect(self.server).await {
             Ok((_, mut server)) => {

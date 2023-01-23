@@ -45,8 +45,20 @@ pub(crate) enum QClass {
 pub(crate) struct DnsMessage<'a> {
     pub(crate) id: u16,
     pub(crate) opcode: Opcode,
-    pub(crate) questions: &'a [Question<'a>],
-    pub(crate) answers: &'a [Answer<'a>],
+    pub(crate) questions: Questions<'a>,
+    pub(crate) answers: Answers<'a>,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) enum Questions<'a> {
+    Slice(&'a [Question<'a>]),
+    Raw(&'a [u8]),
+}
+
+#[derive(Clone, Copy)]
+pub(crate) enum Answers<'a> {
+    Slice(&'a [Answer<'a>]),
+    Raw(&'a [u8]),
 }
 
 #[derive(Clone, Copy)]
@@ -65,14 +77,101 @@ pub(crate) struct Answer<'a> {
     pub(crate) rdata: &'a [u8],
 }
 
+impl<'a> Questions<'a> {
+    fn len(&self) -> usize {
+        match self {
+            Questions::Slice(q) => q.len(),
+            Questions::Raw(s) => {
+                todo!()
+            }
+        }
+    }
+
+    fn encode(&self, buf: &mut [u8]) -> Result<usize, DnsError> {
+        let mut pos = 0;
+        match self {
+            Questions::Slice(questions) => {
+                for question in questions.iter() {
+                    pos += question.qname.encode(&mut buf[pos..])?;
+
+                    let qtype = (question.qtype as u16).to_be_bytes();
+                    buf[pos] = qtype[0];
+                    buf[pos + 1] = qtype[1];
+
+                    let qclass = (question.qclass as u16).to_be_bytes();
+                    buf[pos + 2] = qclass[0];
+                    buf[pos + 3] = qclass[1];
+
+                    pos += 4;
+                }
+                Ok(pos)
+            }
+            Questions::Raw(data) => {
+                buf[0..data.len()].copy_from_slice(data);
+                Ok(data.len())
+            }
+        }
+    }
+
+    fn decode(buf: &'a [u8]) -> Result<Questions<'a>, DnsError> {
+        todo!()
+    }
+}
+
+impl<'a> Answers<'a> {
+    fn len(&self) -> usize {
+        match self {
+            Answers::Slice(q) => q.len(),
+            Answers::Raw(s) => {
+                todo!()
+            }
+        }
+    }
+
+    fn encode(&self, buf: &mut [u8]) -> Result<usize, DnsError> {
+        let mut pos = 0;
+        match self {
+            Answers::Slice(answers) => {
+                for answer in answers.iter() {
+                    pos += answer.domain.encode(&mut buf[pos..])?;
+
+                    let qtype = (answer.r#type as u16).to_be_bytes();
+                    buf[pos] = qtype[0];
+                    buf[pos + 1] = qtype[1];
+                    pos += 2;
+
+                    let qclass = (answer.class as u16).to_be_bytes();
+                    buf[pos] = qclass[0];
+                    buf[pos + 1] = qclass[1];
+                    pos += 2;
+
+                    buf[pos..pos + 4].copy_from_slice(&answer.ttl.to_be_bytes());
+                    pos += 4;
+
+                    buf[pos..pos + 2].copy_from_slice(&(answer.rdata.len() as u16).to_be_bytes());
+                    pos += 2;
+
+                    buf[pos..pos + answer.rdata.len()].copy_from_slice(answer.rdata);
+                    pos += answer.rdata.len();
+                }
+                Ok(pos)
+            }
+            Answers::Raw(data) => {
+                buf[0..data.len()].copy_from_slice(data);
+                Ok(data.len())
+            }
+        }
+    }
+
+    fn decode(buf: &'a [u8]) -> Result<Answers<'a>, DnsError> {
+        todo!()
+    }
+}
+
 #[derive(Clone, Copy)]
 pub(crate) enum Domain<'a> {
     String(&'a str),
-    Label(&'a [Label<'a>]),
-}
-
-pub(crate) struct Label<'a> {
-    data: &'a [u8],
+    Raw(&'a [u8]),
 }
 
 impl<'a> Domain<'a> {
@@ -91,7 +190,10 @@ impl<'a> Domain<'a> {
                     pos += l;
                 }
             }
-            Self::Label(labels) => {}
+            Self::Raw(data) => {
+                buf[pos..pos + data.len()].copy_from_slice(&data[..]);
+                pos += data.len();
+            }
         }
         buf[pos] = 0;
         pos += 1;
@@ -99,8 +201,8 @@ impl<'a> Domain<'a> {
     }
 
     fn decode(buf: &'a [u8]) -> Result<(usize, DnsMessage<'a>), DnsError> {
-todo!()
-}
+        todo!()
+    }
 }
 
 impl<'a> DnsMessage<'a> {
@@ -129,42 +231,9 @@ impl<'a> DnsMessage<'a> {
         buf[7] = 0; // ARCOUNT
 
         let mut pos = 8;
-        for question in self.questions {
-            pos += question.qname.encode(&mut buf[pos..])?;
+        pos += self.questions.encode(&mut buf[pos..])?;
 
-            let qtype = (question.qtype as u16).to_be_bytes();
-            buf[pos] = qtype[0];
-            buf[pos + 1] = qtype[1];
-
-            let qclass = (question.qclass as u16).to_be_bytes();
-            buf[pos + 2] = qclass[0];
-            buf[pos + 3] = qclass[1];
-
-            pos += 4;
-        }
-
-        for answer in self.answers {
-            pos += answer.domain.encode(&mut buf[pos..])?;
-
-            let qtype = (answer.r#type as u16).to_be_bytes();
-            buf[pos] = qtype[0];
-            buf[pos + 1] = qtype[1];
-            pos += 2;
-
-            let qclass = (answer.class as u16).to_be_bytes();
-            buf[pos] = qclass[0];
-            buf[pos + 1] = qclass[1];
-            pos += 2;
-
-            buf[pos..pos + 4].copy_from_slice(&answer.ttl.to_be_bytes());
-            pos += 4;
-
-            buf[pos..pos + 2].copy_from_slice(&(answer.rdata.len() as u16).to_be_bytes());
-            pos += 2;
-
-            buf[pos..pos + answer.rdata.len()].copy_from_slice(answer.rdata);
-            pos += answer.rdata.len();
-        }
+        pos += self.answers.encode(&mut buf[pos..])?;
 
         Ok(pos)
     }
@@ -228,4 +297,10 @@ impl<'a> DnsMessage<'a> {
 
         todo!()
     }
+}
+
+#[cfg(tests)]
+mod tests {
+    #[test]
+    fn test_codec() {}
 }

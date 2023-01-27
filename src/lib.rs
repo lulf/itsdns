@@ -1,8 +1,9 @@
-//! DNS client built on embedded-nal-async UDP traits.
 #![no_std]
 #![feature(impl_trait_projections)]
 #![allow(incomplete_features)]
 #![feature(async_fn_in_trait)]
+#![doc = include_str!("../README.md")]
+#![warn(missing_docs)]
 
 use core::sync::atomic::{AtomicU16, Ordering};
 use embedded_nal_async::{AddrType, ConnectedUdp, Dns, IpAddr, Ipv4Addr, SocketAddr, UdpStack};
@@ -11,21 +12,33 @@ use heapless::String;
 mod message;
 use message::*;
 
+/// Errors returned by the client.
 #[derive(Debug)]
 pub enum Error<N> {
+    /// Error in the underlying network
     Network(N),
+    /// Error specific to DNS
     Dns(DnsError),
+    /// DNS entry not found
     NotFound,
 }
 
+/// An error related to the DNS message itself.
 #[derive(Debug)]
 pub enum DnsError {
+    /// Error encoding the message.
     Encode,
+    /// Error decoding the message.
     Decode,
+    /// Message format error.
     FormatError,
+    /// Failure occured on server.
     ServerFailure,
+    /// Error in name.
     NameError,
+    /// Functionality not supported.
     NotImplemented,
+    /// Request refused.
     Refused,
 }
 
@@ -37,6 +50,7 @@ pub struct ItsDns<S: UdpStack> {
 }
 
 impl<S: UdpStack> ItsDns<S> {
+    /// Create a new DNS client using the UDP stack and a DNS server.
     pub fn new(stack: S, server: SocketAddr) -> Self {
         Self {
             id: AtomicU16::new(0),
@@ -45,7 +59,8 @@ impl<S: UdpStack> ItsDns<S> {
         }
     }
 
-    async fn get_host_by_name(
+    /// Lookup a host by the name and return the IP address of the host.
+    pub async fn get_host_by_name(
         &self,
         host: &str,
         _addr_type: AddrType,

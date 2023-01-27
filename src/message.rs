@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use crate::DnsError;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -166,8 +167,35 @@ impl<'a> Question<'a> {
 }
 
 impl<'a> Answer<'a> {
-    fn decode(data: &'a [u8]) -> Result<(usize, Answer<'a>), DnsError> {
-        todo!()
+    fn decode(data: &'a [u8], message: &'a [u8]) -> Result<(usize, Answer<'a>), DnsError> {
+        let mut pos = 0;
+        let (p, domain) = Domain::decode(&data[pos..], message)?;
+        pos += p;
+
+        let r#type = u16::from_be_bytes([data[pos], data[pos + 1]]).try_into()?;
+        pos += 2;
+
+        let class = u16::from_be_bytes([data[pos], data[pos + 1]]).try_into()?;
+        pos += 2;
+
+        let ttl = u32::from_be_bytes([data[pos], data[pos + 1], data[pos + 2], data[pos + 3]]);
+        pos += 4;
+
+        let rdata_len = u16::from_be_bytes([data[pos], data[pos + 1]]) as usize;
+        pos += 2;
+
+        let rdata = &data[pos..pos + rdata_len];
+
+        Ok((
+            pos,
+            Answer {
+                domain,
+                r#type,
+                class,
+                ttl,
+                rdata,
+            },
+        ))
     }
 
     fn encode(&self, buf: &mut [u8]) -> Result<usize, DnsError> {
@@ -257,14 +285,14 @@ impl<'a> Questions<'a> {
         message: &'a [u8],
     ) -> Result<(usize, Questions<'a>), DnsError> {
         let mut pos = 0;
-        for question in 0..count {
-            let (p, domain) = Domain::decode(&buf[pos..], message)?;
+        for _question in 0..count {
+            let (p, _domain) = Domain::decode(&buf[pos..], message)?;
             pos += p;
 
-            let qtype = u16::from_be_bytes([buf[pos], buf[pos + 1]]);
+            let _qtype = u16::from_be_bytes([buf[pos], buf[pos + 1]]);
             pos += 2;
 
-            let qclass = u16::from_be_bytes([buf[pos], buf[pos + 1]]);
+            let _qclass = u16::from_be_bytes([buf[pos], buf[pos + 1]]);
             pos += 2;
         }
 
@@ -280,15 +308,38 @@ impl<'a> Questions<'a> {
 }
 
 impl<'a> Answers<'a> {
-    fn count(&self) -> usize {
+    pub fn count(&self) -> usize {
         match self {
             Answers::Slice(q) => q.len(),
-            Answers::Raw(c, _) => *c,
+            Answers::Raw {
+                count,
+                message: _,
+                data: _,
+            } => *count,
         }
     }
 
-    fn get(&'a self, i: usize) -> Result<Option<Answer<'a>>, DnsError> {
-        Ok(None)
+    pub fn get(&'a self, i: usize) -> Result<Option<Answer<'a>>, DnsError> {
+        match self {
+            Self::Slice(qs) => Ok(qs.get(i).copied()),
+            Self::Raw {
+                count,
+                data,
+                message,
+            } => {
+                if i < *count {
+                    let mut pos = 0;
+                    for answer in 0..*count {
+                        let (p, a) = Answer::decode(&data[pos..], message)?;
+                        if answer == i {
+                            return Ok(Some(a));
+                        }
+                        pos += p;
+                    }
+                }
+                Ok(None)
+            }
+        }
     }
 
     fn encode(&self, buf: &mut [u8]) -> Result<usize, DnsError> {
@@ -317,22 +368,23 @@ impl<'a> Answers<'a> {
         message: &'a [u8],
     ) -> Result<(usize, Answers<'a>), DnsError> {
         let mut pos = 0;
-        for answer in 0..count {
+        for _answer in 0..count {
             let (p, _) = Domain::decode(&buf[pos..], message)?;
             pos += p;
 
-            let qtype = u16::from_be_bytes([buf[pos], buf[pos + 1]]);
+            let _qtype = u16::from_be_bytes([buf[pos], buf[pos + 1]]);
             pos += 2;
 
-            let qclass = u16::from_be_bytes([buf[pos], buf[pos + 1]]);
+            let _qclass = u16::from_be_bytes([buf[pos], buf[pos + 1]]);
             pos += 2;
 
-            let ttl = u32::from_be_bytes([buf[pos], buf[pos + 1], buf[pos + 2], buf[pos + 3]]);
+            let _ttl = u32::from_be_bytes([buf[pos], buf[pos + 1], buf[pos + 2], buf[pos + 3]]);
             pos += 4;
 
             let rdata_len = u16::from_be_bytes([buf[pos], buf[pos + 1]]);
-            let rdata = &buf[pos..pos + rdata_len as usize];
-            pos += rdata.len();
+            pos += 2;
+
+            pos += rdata_len as usize;
         }
         Ok((
             pos,
@@ -348,10 +400,96 @@ impl<'a> Answers<'a> {
 #[derive(Clone, Debug, Copy)]
 pub(crate) enum Domain<'a> {
     String(&'a str),
-    Raw { data: &'a [u8], message: &'a [u8], ptr: Option<u16> },
+    Raw { data: &'a [u8], message: &'a [u8] },
+}
+
+struct DomainIter<'a> {
+    domain: &'a Domain<'a>,
+    pos: usize,
+    len: usize,
+    ptr: Option<usize>,
+    first: bool,
+}
+
+impl<'a> Iterator for DomainIter<'a> {
+    type Item = u8;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self.domain {
+            Domain::String(s) => {
+                let b = s.as_bytes();
+                if self.pos < b.len() {
+                    let pos = self.pos;
+                    self.pos += 1;
+                    Some(b[pos])
+                } else {
+                    None
+                }
+            }
+            Domain::Raw { data, message } => {
+                let mut ret = None;
+                loop {
+                    let data = if let Some(p) = self.ptr {
+                        &message[p..]
+                    } else {
+                        data
+                    };
+                    let pos = self.pos;
+                    if self.len > 0 {
+                        self.pos += 1;
+                        self.len -= 1;
+                        ret.replace(data[pos]);
+                        break;
+                    } else if data[pos] & 0xC0 != 0 {
+                        self.ptr.replace(u16::from_be_bytes([data[pos] & 0x3F, data[pos + 1]]) as usize);
+                        self.pos = 0;
+                        self.len = 0;
+                    } else if data[pos] == 0 {
+                        break;
+                    } else {
+                        self.len = data[pos] as usize;
+                        self.pos += 1;
+                        if !self.first {
+                            ret.replace('.' as u8);
+                            break;
+                        }
+                    }
+                }
+                self.first = false;
+                ret
+            }
+        }
+    }
+}
+
+impl<'a> PartialEq for Domain<'a> {
+    fn eq(&self, other: &Self) -> bool {
+        let mut lit = self.iter();
+        let mut rit = other.iter();
+        loop {
+            match (lit.next(), rit.next()) {
+                (Some(l), Some(r)) => {
+                    if l != r {
+                        return false;
+                    }
+                }
+                (None, None) => return true,
+                _ => return false,
+            }
+        }
+    }
 }
 
 impl<'a> Domain<'a> {
+    fn iter(&'a self) -> DomainIter<'a> {
+        DomainIter {
+            domain: self,
+            pos: 0,
+            len: 0,
+            ptr: None,
+            first: true,
+        }
+    }
     fn encode(&self, buf: &mut [u8]) -> Result<usize, DnsError> {
         let mut pos = 0;
         match self {
@@ -367,7 +505,7 @@ impl<'a> Domain<'a> {
                     pos += l;
                 }
             }
-            Self::Raw { data, message: _, ptr: _ } => {
+            Self::Raw { data, message: _ } => {
                 buf[pos..pos + data.len()].copy_from_slice(&data[..]);
                 pos += data.len();
             }
@@ -379,27 +517,26 @@ impl<'a> Domain<'a> {
 
     fn decode(buf: &'a [u8], message: &'a [u8]) -> Result<(usize, Domain<'a>), DnsError> {
         let mut pos = 0;
-        let mut ptr = None;
         loop {
             let len = buf[pos];
-            pos += len as usize + 1;
-            if len & 0xC0 {
-                ptr.replace(u16::from_be_bytes([len & 0x3F, buf[pos]]));
-                println!("Found ptr to {:?}", ptr);
-                pos += len as usize + 1;
+            if len & 0xC0 != 0 {
+                pos += 2;
                 break;
+            } else {
+                pos += len as usize + 1;
             }
 
             if len == 0 {
                 break;
             }
-            println!("Found label of length {}", len);
         }
-        Ok((pos, Domain::Raw {
-            data: &buf[..pos],
-            message,
-            ptr,
-        }
+        Ok((
+            pos,
+            Domain::Raw {
+                data: &buf[..pos],
+                message,
+            },
+        ))
     }
 }
 
@@ -440,9 +577,7 @@ impl<'a> DnsMessage<'a> {
 
     pub(crate) fn decode(buf: &'a [u8]) -> Result<DnsMessage<'a>, DnsError> {
         assert!(buf.len() >= 12);
-        println!("Decoding... {} bytes", buf.len());
         let id = u16::from_be_bytes([buf[0], buf[1]]);
-        println!("Id: {}", id);
 
         let opcode = match (buf[2] >> 3) & 0xF {
             0 => Ok(Opcode::Query),
@@ -450,8 +585,6 @@ impl<'a> DnsMessage<'a> {
             2 => Ok(Opcode::Status),
             _ => Err(DnsError::Decode),
         }?;
-
-        println!("Opcide: {:?}", opcode);
 
         // TODO: Other bits in buf[2]
 
@@ -466,20 +599,16 @@ impl<'a> DnsMessage<'a> {
             _ => {}
         }
 
-        println!("Rcode: {}", rcode);
         let questions = u16::from_be_bytes([buf[4], buf[5]]);
         let answers = u16::from_be_bytes([buf[6], buf[7]]);
 
         // Skip NSCOUNT, ARCOUNT
         let mut pos = 12;
 
-        println!("Decoding question section with {} entries", questions);
         let (p, questions) = Questions::decode(questions as usize, &buf[pos..], buf)?;
         pos += p;
 
-        println!("Decoding answer section with {} entries", answers);
-        let (p, answers) = Answers::decode(answers as usize, &buf[pos..], buf)?;
-        pos += p;
+        let (_p, answers) = Answers::decode(answers as usize, &buf[pos..], buf)?;
 
         Ok(DnsMessage {
             id,
@@ -513,12 +642,9 @@ mod tests {
         .unwrap();
         assert_eq!(len, 28);
 
-        use std::net::UdpSocket;
-        let socket = UdpSocket::bind("0.0.0.0:9999").expect("error binding");
-        socket.send_to(&buf[..len], "8.8.8.8:53").unwrap();
+        let m = DnsMessage::decode(&buf[..len]).unwrap();
 
-        let (len, addr) = socket.recv_from(&mut buf[..]).unwrap();
-
-        let answer = DnsMessage::decode(&buf[..len]).unwrap();
+        let question = m.questions.get(0).unwrap().unwrap();
+        assert_eq!(Domain::String("google.com"), question.qname);
     }
 }

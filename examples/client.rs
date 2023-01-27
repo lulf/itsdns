@@ -1,16 +1,3 @@
-# itsdns
-
-[![CI](https://github.com/lulf/itsdns/actions/workflows/ci.yaml/badge.svg)](https://github.com/lulf/itsdns/actions/workflows/ci.yaml)
-[![crates.io](https://img.shields.io/crates/v/itsdns.svg)](https://crates.io/crates/itsdns)
-[![docs.rs](https://docs.rs/itsdns/badge.svg)](https://docs.rs/itsdns)
-
-It's always DNS.
-
-A light weight DNS client that you can use with any UDP stack implemented by `embedded-nal-async`. It also implements the DNS traits from `embedded-nal-async`.
-
-# example
-
-```rust
 #![feature(async_fn_in_trait)]
 #![allow(incomplete_features)]
 
@@ -34,4 +21,3 @@ async fn main() {
 
     println!("Resolved {} to {}", host, ip);
 }
-```

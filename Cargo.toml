@@ -18,9 +18,8 @@ heapless = "0.7"
 
 [dev-dependencies]
 embedded-io = { version = "0.4.0", features = ["async", "std"] }
-std-embedded-nal-async = { version = "0.1.0" }
 tokio = { version = "1.21", features = ["full"] }
+std-embedded-nal-async = { version = "0.1.0", git = "https://gitlab.com/chrysn/std-embedded-nal.git", rev = "2af6a33f9926ffcd312948bd4a88ae692009e083" }
 
 [patch.crates-io]
 embedded-nal-async = { git = "https://github.com/lulf/embedded-nal.git", rev = "976f43547a67af576f906c91dd25c8656b07830b" }
-std-embedded-nal-async = { version = "0.1.0", git = "https://gitlab.com/chrysn/std-embedded-nal.git", rev = "2af6a33f9926ffcd312948bd4a88ae692009e083" }

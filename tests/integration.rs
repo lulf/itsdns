@@ -1,7 +1,7 @@
 #![feature(async_fn_in_trait)]
 #![allow(incomplete_features)]
 
-use embedded_nal_async::{Dns, IpAddr, SocketAddr};
+use embedded_nal_async::{IpAddr, SocketAddr};
 use std::str::FromStr;
 
 use itsdns::*;

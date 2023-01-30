@@ -4,6 +4,7 @@
 #![feature(async_fn_in_trait)]
 #![doc = include_str!("../README.md")]
 #![warn(missing_docs)]
+#![allow(clippy::upper_case_acronyms)]
 
 use core::sync::atomic::{AtomicU16, Ordering};
 use embedded_nal_async::{AddrType, ConnectedUdp, Dns, IpAddr, Ipv4Addr, SocketAddr, UdpStack};

@@ -450,7 +450,7 @@ impl<'a> Iterator for DomainIter<'a> {
                         self.len = data[pos] as usize;
                         self.pos += 1;
                         if !self.first {
-                            ret.replace('.' as u8);
+                            ret.replace(b'.');
                             break;
                         }
                     }
@@ -494,8 +494,8 @@ impl<'a> Domain<'a> {
         let mut pos = 0;
         match self {
             Self::String(host) => {
-                let mut labels = host.split('.');
-                while let Some(label) = labels.next() {
+                let labels = host.split('.');
+                for label in labels {
                     let label = label.as_bytes();
                     let l = label.len().min(255);
                     buf[pos] = l as u8;
